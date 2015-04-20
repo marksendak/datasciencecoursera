@@ -1,0 +1,43 @@
+#### This code is for plot 5 of course project 2 for the Coursera course "Exploratory Data Analysis"
+#### Date: June 21, 2014
+#### Author: Mark Dakkak
+
+######### Load libraries #########
+library(reshape2)
+library(ggplot2)
+
+######### Set working directory #########
+setwd("/Users/sommpd10/Desktop/exdata-data-NEI_data")
+
+######### Read in files #########
+## This first line will likely take a few seconds. Be patient!
+NEI <- readRDS("summarySCC_PM25.rds")
+SCC <- readRDS("Source_Classification_Code.rds")
+
+######### Clean data #########
+## pull out Baltimore data
+Baltimore <- subset(NEI, NEI$fips == "24510")
+
+## Find motor vehicle-related activities
+MV_Subset <- SCC[grep("Locomotives|Vehicles", SCC$EI.Sector), ]
+MV_SCCs <- MV_Subset[, 1]
+
+## Make the MV SCCs a vector from a factor
+MV_SCCs <- as.vector(MV_SCCs)
+
+### Subset Baltimore by the MV SCCs 
+MV_Baltimore <- Baltimore[Baltimore$SCC %in% MV_SCCs, ]
+
+######### Create data table for graph #########
+Q5_df <- aggregate(MV_Baltimore$Emissions ~ MV_Baltimore$year, FUN = sum)
+
+## Convert names
+names(Q5_df)[1] <- "Year"
+names(Q5_df)[2] <- "Emissions"
+
+######### Make PNG Plot #########
+png(filename = "/Users/sommpd10/datasciencecoursera/Exploratory-Data-Analysis/Project 2/plot5.png", width = 480, height = 480, units = "px", bg = "white")
+
+barplot(Q5_df$Emissions, main= expression('Total PM' [2.5] * ' Emissions from Motor Vehicles in Baltimore Per Year'), names.arg=c("1999", "2002", "2005", "2008"), xlab = "Year", ylab = expression('Total PM' [2.5] * ' Emissions from Motor Vehicles in Baltimore'))
+
+dev.off()

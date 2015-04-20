@@ -1,0 +1,214 @@
+---
+title: "The Health and Financial Impact of Weather Events"
+author: "Mark Dakkak"
+date: "July 24, 2014"
+output: html_document
+---
+
+##Synopsis##  
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can results in fatalities, injuries, and property damage. This analysis uses the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database, which tracks characteristics of major storms and weather events in the United States. The analysis addresses two questions:  
+1. Across the United States, which types of events are most harmful with respect to population health?  
+2. Across the United States, which types of events have the greatest economic consequences?
+
+##Data Processing##  
+**1. Reading in the data**  
+The data set is from [this website](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2) and you must save it to your working directory. Assign the path of your directory to the variable Rep_Research.   
+```{r setenvironment, echo=TRUE}
+Rep_Research <- "/Users/sommpd10/datasciencecoursera/Reproducible-Research"
+setwd(Rep_Research)
+```
+
+I had trouble reading in the file, so changed the system settings (there's an explanation [in this discussion forum](https://class.coursera.org/repdata-004/forum/thread?thread_id=141)). To save some time, I specified which columns to read in (columns set to "NULL" are ignored) and specified the class of the variables I wanted. Save the file to a dataframe called "data."  
+```{r readindata, echo=TRUE, cache=TRUE}
+url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+file <- "repdata-data-StormData.csv.bz2"
+Sys.setlocale('LC_ALL', 'C')
+to_read = c("NULL", "character", rep("NULL", 4), "character", "character", rep("NULL", 14), "numeric", "numeric", "numeric", "character", "numeric", "character", rep("NULL", 9))
+download.file(url, file, method = "curl")
+data <- read.csv("repdata-data-StormData.csv", header=TRUE, colClasses=to_read)
+```
+
+**2. Clean variables**  
+Once you finally get the data loaded into R, you have some work to do before you can start any analysis. Because the file is so large, I use the data table package and convert the data frame to a data table.   
+
+First off, I thought about health and economic damages as yearly rates, so I built out a year variable. To do this, I use the word() function in the stringr package, which helps pull out the date from the variable and ignore the time stamp.
+```{r yearvariable, echo=TRUE, cache=TRUE}
+library(data.table)
+library(stringr)
+data <- data.table(data)
+data$BGN_DATE <- as.Date(word(as.character(data$BGN_DATE), 1), format="%m/%d/%Y")
+data <- data[,YEAR:=as.numeric(format(BGN_DATE, "%Y"))]
+```
+
+Next, I calculated exact dollar amounts for property and crop damages. This requires using the value in the "PROPDMGEXP" and "CROPDMGEXP" fields. For example, if the value in "PROPDMG" is 200 and the value in "PROPDMGEXP" is K, then the units are thousands, so the total property damage is $200,000. I found [this thread](https://class.coursera.org/repdata-004/forum/thread?thread_id=118) helpful for explaining how to interpret the damage variables.  
+```{r costvariables, echo=TRUE}
+library(data.table)
+data <- data[PROPDMGEXP == "H" | PROPDMGEXP == "h",PROPDMG:= (PROPDMG * 100)]
+data <- data[PROPDMGEXP == "K" | PROPDMGEXP == "k",PROPDMG:= (PROPDMG * 1000)]
+data <- data[PROPDMGEXP == "M" | PROPDMGEXP == "m",PROPDMG:= (PROPDMG * 1000000)]
+data <- data[PROPDMGEXP == "B" | PROPDMGEXP == "b",PROPDMG:= (PROPDMG * 1000000000)]
+
+data <- data[CROPDMGEXP == "H" | CROPDMGEXP == "h",CROPDMG:= (CROPDMG * 100)]
+data <- data[CROPDMGEXP == "K" | CROPDMGEXP == "k",CROPDMG:= (CROPDMG * 1000)]
+data <- data[CROPDMGEXP == "M" | CROPDMGEXP == "m",CROPDMG:= (CROPDMG * 1000000)]
+data <- data[CROPDMGEXP == "B" | CROPDMGEXP == "b",CROPDMG:= (CROPDMG * 1000000000)]
+```
+
+This last step involves combining some of the factor levels for the variable "EVTYPE". This is by no means a comprehensive condensing of factor levels. I looked at the 50 types of events with the greatest number of observations that have nonzero values for fatalities, injuries, property damage, or crop damage and only considered those factor levels for cleaning. Going through the hundreds of event types would have diminishing returns beyond some point.
+```{r evtypelevels, echo=TRUE}
+library(data.table)
+# Combine "EXCESSIVE HEAT" and "HEAT"
+data <- data[EVTYPE == "HEAT", EVTYPE:="EXCESSIVE HEAT"]
+# Combine "WILD/FOREST FIRE" and "WILDFIRE"
+data <- data[EVTYPE == "WILD/FOREST FIRE", EVTYPE:="WILDFIRE"]
+# Combine "TSTM WIND" and "THUNDERSTORM WIND" and "THUNDERSTORM WINDS"
+data <- data[EVTYPE == "TSTM WIND" | EVTYPE == "THUNDERSTORM WINDS", EVTYPE:="THUNDERSTORM WIND"]
+# Combine "FLOOD", "RIVER FLOOD", and "FLASH FLOOD"
+data <- data[EVTYPE == "FLASH FLOOD" | EVTYPE == "RIVER FLOOD", EVTYPE:="FLOOD"]
+# Combine "HURRICANE OPAL", "HURRICANE/TYPHOON", "HURRICANE", and "TROPICAL STORM"
+data <- data[EVTYPE == "HURRICANE OPAL" | EVTYPE == "HURRICANE/TYPHOON" | EVTYPE == "HURRICANE", EVTYPE:="TROPICAL STORM"]
+```
+
+##Results##   
+**1. Health Impact**  
+This section covers analysis related to understanding the health impact of various severe weather events.
+
+First, I identify the six weather event types that have caused the largest number of deaths and injuries. I create a new variable "HEALTH_DAMAGES" that represents the sum of fatalities and injuries. Below, you'll find a table of the most dangerous events. 
+```{r top6health, echo=TRUE}
+library(data.table)
+library(plyr)
+Event_Health_Summary <- data[(FATALITIES != 0 | INJURIES != 0), lapply(.SD, sum), by="EVTYPE", .SDcols=c("FATALITIES", "INJURIES")]
+Event_Health_Summary <- Event_Health_Summary[,HEALTH_DAMAGES:=(FATALITIES + INJURIES)]
+Event_Health_Summary <- arrange(Event_Health_Summary, desc(HEALTH_DAMAGES))
+head(Event_Health_Summary, n=6)
+```
+
+I make a list called "Dangerous_Events" of the top 6 event types and subset for these 6 events. Then, I sum the number of fatalities and injuries for each type of event for each year. This gives us a sense of the health damages per year over time. This code builds the table:
+```{r top6healthtable, echo=TRUE}
+library(data.table)
+Dangerous_Events <- Event_Health_Summary[1:6,EVTYPE]
+Health_Summary <- data[EVTYPE %in% Dangerous_Events, lapply(.SD, sum), by="EVTYPE,YEAR", .SDcols=c("FATALITIES", "INJURIES")]
+Health_Summary <- Health_Summary[,HEALTH_DAMAGES:=(FATALITIES + INJURIES)]
+```
+
+To see the health damages of the 6 most dangerous event types over time, I create line graphs for fatalities, injuries, and the sum of both. I use the function multiplot() from [this website](http://www.cookbook-r.com/Graphs/Multiple_graphs_on_one_page_(ggplot2)/) to put three line graphs on a single plot with ggplot() code.
+```{r healthplot, echo=TRUE}
+library(ggplot2)
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  require(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+g1 <- ggplot(Health_Summary, aes(x = YEAR, y = FATALITIES, color = EVTYPE)) + geom_line() + labs(title="Fatalities per Year", x="", y="")
+g2 <- ggplot(Health_Summary, aes(x = YEAR, y = INJURIES, color = EVTYPE)) + geom_line() + labs(title="Injuries per Year", x="", y="")
+g3 <- ggplot(Health_Summary, aes(x = YEAR, y = HEALTH_DAMAGES, color = EVTYPE)) + geom_line() + labs(title="Injuries + Fatalities per Year", x="", y="")
+multiplot(g1, g2, g3, cols=1)
+```
+
+Looking at the image above, there's a few important observations:  
+- Tracking of health impact began at different times for different events. Data for tornadoes and thunder storms goes back the furthers (before 1960).  
+- Although excessive heat (red) has resulted in large numbers of fatalities (particularly in the mid 1990s), due to the low number of injuries, the total health impact is less significant. In the bottom panel, the red line is no longer impressive.  
+- Similar to above, flood (gold) has resulted in large numbers of injuries (particularly in the late 1990s). Other than that few-year period, the gold line is not impressive on the bottom panel.  
+- It appears that tornadoes have the most sustained significant health impact in terms of both fatalities and injuries.  
+
+
+**2. Financial Impact**  
+This section covers analysis related to understanding the financial impact of various severe weather events.
+
+First, I identify the six weather event types that have caused the largest amount of property and crop damage. I create a new variable "ECON_DAMAGES" that represents the sum of property and crop damages. Below, you'll find a table of the most costly events. 
+```{r top6econ, echo=TRUE}
+library(data.table)
+library(plyr)
+Event_Econ_Summary <- data[(PROPDMG != 0 | CROPDMG != 0), lapply(.SD, sum), by="EVTYPE", .SDcols=c("PROPDMG", "CROPDMG")]
+Event_Econ_Summary <- Event_Econ_Summary[,ECON_DAMAGES:=(PROPDMG + CROPDMG)]
+Event_Econ_Summary <- arrange(Event_Econ_Summary, desc(ECON_DAMAGES))
+head(Event_Econ_Summary, n=6)
+```
+
+I make a list called "Costly_Events" of the top 6 event types and subset for these 6 events. Then, I sum the amount of property and crop damages for each type of event for each year. This gives us a sense of the economic damages per year over time. This code builds the table:
+```{r top6econtable, echo=TRUE}
+library(data.table)
+Costly_Events <- Event_Econ_Summary[1:6,EVTYPE]
+Econ_Summary <- data[EVTYPE %in% Costly_Events, lapply(.SD, sum), by="EVTYPE,YEAR", .SDcols=c("PROPDMG", "CROPDMG")]
+Econ_Summary <- Econ_Summary[,ECON_DAMAGES:=(PROPDMG + CROPDMG)]
+```
+
+To see the economic damages of the 6 most dangerous event types over time, I create line graphs for property damages, crop damages, and the sum of both. I use the function multiplot() from [this website](http://www.cookbook-r.com/Graphs/Multiple_graphs_on_one_page_(ggplot2)/) to put three line graphs on a single plot with ggplot() code.
+```{r econplot, echo=TRUE}
+library(ggplot2)
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  require(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+g1 <- ggplot(Econ_Summary, aes(x = YEAR, y = PROPDMG, color = EVTYPE)) + geom_line() + labs(title="Property Damage per Year", x = "", y = "")
+g2 <- ggplot(Econ_Summary, aes(x = YEAR, y = CROPDMG, color = EVTYPE)) + geom_line() + labs(title="Crop Damage per Year", x = "", y = "")
+g3 <- ggplot(Econ_Summary, aes(x = YEAR, y = ECON_DAMAGES, color = EVTYPE)) + geom_line() + labs(title="Property + Crop Damage per Year", x = "", y = "")
+multiplot(g1, g2, g3, cols=1)
+```
+
+Looking at the image above, there's a few important observations:  
+- Tracking of financial impact began at different times for different events. Data for tornadoes started around 1950, but data for other events starts in the early 1990s.   
+- Certain events cause primarily one type of damage. For example, droughts (red) have caused significant crop damages, but little property damage. On the other hand, storm surges (green) have caused significant property damage (particularly in the mid 2000s), but little crop damage.  
+- Crop damage and property damage have very different trends. Crop damage seems to be recurrent, with a variety of peaks and valleys. However, property damage is more concentrated around isolated data points. For example, floods caused an extraordinary amount of property damage in the mid 2000s, but have not returned to those levels at any other point. Similarly, tropical storms and storm surges also caused an extraordinary amount of property damage in the mid 2000s, but have also not returned to those levels at any other point.  
+- Floods and tropical storms seem to have the largest likelihood of causing great financial damage in terms of both property and crop damage.  

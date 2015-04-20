@@ -1,0 +1,111 @@
+---
+title: "The Impact of Vehicle Transmission on Miles per Gallon"
+author: "Mark Dakkak"
+date: "August 21, 2014"
+output:
+  pdf_document:
+    toc: false
+    highlight: zenburn
+---
+
+##Executive Summary##  
+This analysis is performed by Motor Trend, a magazine about the automobile industry. Looking at a data set of a collection of 32 cars, we explore the relationship between type of transmission and miles per gallon (MPG) (outcome). We consider various confounders and present a model that addresses the following two questions:  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 1. Is an automatic or manual transmission better for MPG?  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 2. Quantify the MPG difference between automatic and manual transmissions?  
+
+##Data Processing##   
+The data set mtcars is stored in the R package "datasets". The only changes we made to the variables are fixing variable types from numeric to factor.
+```{r LoadData, echo=TRUE}
+library(datasets); data(mtcars)
+mtcars$cyl <- as.factor(mtcars$cyl)
+mtcars$am <- as.factor(mtcars$am)
+```
+
+##Exploratory Data Analysis##   
+To consider how vehicle transmission impacts miles per gallon, we investigated the relationship between MPG and weight. The graph below plots the 32 cars, with automatic cars plotted in red and manual cars plotted in black. The horizontal lines are at the mean MPG for automatic cars (red line) and the mean MPG for manual cars (black line). The distance between the two horizontal lines (`r mean(mtcars$mpg[mtcars$am == "1"]) - mean(mtcars$mpg[mtcars$am == "0"])`) is equal to the average difference in MPG between manual cars and automatic cars.
+```{r ExploratoryPlot, echo=FALSE}
+plot(mtcars$wt, mtcars$mpg, pch = 19)
+points(mtcars$wt, mtcars$mpg, pch = 19, col= ((mtcars$am == "0")*1 + 1))
+abline(h = mean(mtcars$mpg[mtcars$am == "1"]), col = "black", lwd = 3)
+abline(h = mean(mtcars$mpg[mtcars$am == "0"]), col = "red", lwd = 3)
+legend("topright", pch = 19, col = c("black", "red"), legend = c("Manual", "Automatic"))
+```
+
+From the graph above, we can see that manual cars tend to be lighter and have higher MPGs, whereas automatic cars tend to be heavier and lower MPGs.  
+
+##Model Selection##  
+**1. Impact on bivariate model**  
+To start off, let's dig a little deeper into the relationship between weight and miles per gallon. Let's understand how vehicle transmission
+impacts this bivariate relationship. Below, we test whether there's a constant treatment effect (where the two regression lines would be parallel) or if the treatment effect depends on weight (where the two regression lines are not parallel).
+```{r BivariateModels, echo=TRUE}
+lm_Parallel <- lm(mpg ~ wt + am, data = mtcars)
+lm_Different <- lm(mpg ~ wt + am + wt * am, data = mtcars)
+```
+
+```{r BivariateComparison, echo=FALSE}
+par(mfrow = c(1,2))
+plot(mtcars$wt, mtcars$mpg, pch = 19)
+points(mtcars$wt, mtcars$mpg, pch = 19, col= ((mtcars$am == "0")*1 + 1))
+abline(h = mean(mtcars$mpg[mtcars$am == "1"]), col = "black", lwd = 3)
+abline(h = mean(mtcars$mpg[mtcars$am == "0"]), col = "red", lwd = 3)
+abline(c(lm_Parallel$coeff[1], lm_Parallel$coeff[2]), col="red", lwd = 3)
+abline(c(lm_Parallel$coeff[1] + lm_Parallel$coeff[3],lm_Parallel$coeff[2]), col="black", lwd = 3)
+legend("topright", pch = 19, col = c("black", "red"), legend = c("Manual", "Automatic"))
+
+plot(mtcars$wt, mtcars$mpg, pch = 19)
+points(mtcars$wt, mtcars$mpg, pch = 19, col= ((mtcars$am == "0")*1 + 1))
+abline(h = mean(mtcars$mpg[mtcars$am == "1"]), col = "black", lwd = 3)
+abline(h = mean(mtcars$mpg[mtcars$am == "0"]), col = "red", lwd = 3)
+abline(c(lm_Different$coeff[1], lm_Different$coeff[2]), col="red", lwd = 3)
+abline(c(lm_Different$coeff[1] + lm_Different$coeff[3],lm_Different$coeff[2] + lm_Different$coeff[4]), col="black", lwd = 3)
+legend("topright", pch = 19, col = c("black", "red"), legend = c("Manual", "Automatic"))
+```
+
+In the image above, the horizontal lines correspond with mean MPG for the types of vehicles. In the left image, the slope is assumed to be constant, meaning the relationship between weight and MPG is assumed to be the same between manual cars and automatic cars. We only see one line, because both lines are overlapping. Using automatic cars as the reference, the coefficient for manual cars is `r lm_Parallel$coef[3]` with a p-value of `r summary(lm_Parallel)$coefficients[3,4]`. These values indicate that when the slope is assumed to be constant, transmission type does not significantly influence the relationship between weight and MPG. 
+
+However, once we relax this assumption, the right image illustrates that the relationship between MPG and weight differs dramatically between manual and automatic cars. The expected decrease in MPG for every additional 1000 pounds is `r lm_Different$coef[2]` for automatic cars and `r lm_Different$coef[4]` for manual cars. The p-value for the interaction term coefficient is `r summary(lm_Different)$coefficients[4,4]`, indicating that the two coefficients are significantly different. To confirm that the addition of the interaction term is necessary, we performed an likelihood ratio test using ANOVA. This gave a p value of 0.001017, indicating that including the interaction term has a significant impact on the model.
+
+**2. Impact in multivariate models**  
+Now, let's step back to understand all the variables we should include in our model. The mtcars dataset includes 11 variables, including number of cylinders, rear axle ratio, weight, horsepower, engine displacement, quarter mile time, and transmission type. First, let's start with the relationship of interest, between transmission and miles per galon. From there, we will incrementally add variables to the model and then use the ANOVA function to test the importance of the added variables.
+```{r MultivariateModels, echo=TRUE}
+lm1 <- lm(mpg ~ am, data = mtcars)
+lm2 <- lm(mpg ~ wt + am, data = mtcars)
+lm3 <- lm(mpg ~ wt + am + wt*am, data = mtcars)
+lm4 <- lm(mpg ~ (cyl-1) + wt + am + wt*am, data = mtcars)
+lm5 <- lm(mpg ~ hp + (cyl-1) + wt + am + wt*am, data = mtcars)
+lm6 <- lm(mpg ~ drat + hp + (cyl-1) + wt + am + wt*am, data = mtcars)
+lm7 <- lm(mpg ~ disp + drat + hp + (cyl-1) + wt + am + wt*am, data = mtcars)
+
+anova(lm1, lm2, lm3, lm4, lm5, lm6, lm7)
+```
+
+We can see that the incremental addition of variables significantly affects the model, up until the addition of horsepower in model 5. Because order is important when adding variables into the model, the sensitivity analysis below adds rear axle ratio and engine displacement instead of horsepower, but finds that none of these additional variables significantly improve the model.
+```{r MultivariateSensitivity, echo=TRUE}
+lm5b <- lm(mpg ~ drat + (cyl-1) + wt + am + wt*am, data = mtcars)
+lm5c <- lm(mpg ~ disp + (cyl-1) + wt + am + wt*am, data = mtcars)
+
+anova(lm1, lm2, lm3, lm4, lm5b)
+anova(lm1, lm2, lm3, lm4, lm5c)
+```
+
+Thus, to understand the impact of transmission on miles per gallon, we will use model 4, which estimates mpg using the number of cylinders, weight, transmission, and an interaction term between weight and transmission. Here is a summary of that model:
+```{r ModelSummary, echo=TRUE}
+summary(lm4)$coefficients
+```
+
+Because we included an interaction term in the model, the total impact of vehicle transmission on MPG is equal to the coefficient in front of the transmission variable (`r lm4$coef[5]`) plus the the coefficient in front of the interaction variable (`r lm4$coef[6]`) multiplied by the weight of the vehicle. Thus, **the impact of transmission on miles per galon depends on the weight of the car**. For a vehicle of average weight (`r mean(mtcars$wt)*1000` lb), manual transmission (compared to automatic transmission) would be expected to decrease MPG by `r lm4$coef[5] + lm4$coef[6]*mean(mtcars$wt)`. For a vehicle of very high weight (5000 lb), manual transmission (compared to automatic transmission) would be expected to decrease MPG by `r lm4$coef[5] + lm4$coef[6]*5`. Lastly, for a vehicle of very low weight (2000 lb), manual transmission (compared to automatic transmission) would be expected to increase MPG by `r lm4$coef[5] + lm4$coef[6]*2`.
+
+**3. Diagnostics for multivariate model**  
+Two useful diagnostic measures are hatvalues, which measure leverage, and dfbetas, which measure the change in coefficients when individual observations are deleted while fitting the model.
+
+```{r Diagnostics, echo=FALSE}
+par(mfrow=c(1,3))
+hist(hatvalues(lm4))
+hist(dfbetas(lm4)[,5])
+hist(dfbetas(lm4)[,6])
+```
+
+The histogram on the left shows the hatvalues for all 32 observations, and we can see that there is no observation with a very high hatvalue, indicating that there is likely no data entry errors. The histogram in the middle shows the dfbetas for the coefficient in front of the transmission variable term and the histogram on the right shows the dfbetas for the coefficient in front of the interaction term. It also appears that ignoring single observations does not significantly impact these coefficients.
+
+##Conclusion##  
+Both sections in the model selection section above illustrate that the  impact of vehicle transmission on MPG changes with the weight of the vehicle. Overall, for low weight vehicles, cars with manual transmission have improved MPG. However, for high weight vehicles, cars with automatic transmission have improved MPG. Therefore, there is no single value that can accurately quantify the difference in MPG between automatic and manual cars.

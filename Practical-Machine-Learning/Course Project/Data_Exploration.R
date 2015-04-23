@@ -41,7 +41,7 @@ testing <- as.data.frame(testing)
 ## Split training set
 inTrain <- createDataPartition(y = training$classe, p = 0.7, list = FALSE)
 train <- training[inTrain,]
-test <- training[-inTrain,]
+validate <- training[-inTrain,]
 
 ## Dimensions of training and testing sets
 dim(train)
@@ -67,26 +67,20 @@ sum(nsv$nzv)
 
 ## Remove new_window from data sets
 train <- train[,setdiff(names(train),"new_window")]
-test <- test[,setdiff(names(test), "new_window")]
+validate <- validate[,setdiff(names(validate), "new_window")]
 testing <- testing[,setdiff(names(testing), "new_window")]
 
-############################ Remove V1 and user_name ############################
+############################ Remove V1, user_name, and timestamp variables ############################
 
-train <- train[, setdiff(names(train), c("V1", "user_name"))]
-test <- test[, setdiff(names(test), c("V1", "user_name"))]
-testing <- testing[, setdiff(names(testing), c("V1", "user_name"))]
-
-############################ Remove timestamp variables ############################
-
-train <- train[, setdiff(names(train), grep("time|window", names(train), value = TRUE))]
-test <- test[, setdiff(names(test), grep("time|window", names(test), value = TRUE))]
-testing <- testing[, setdiff(names(testing), grep("time|window", names(testing), value = TRUE))]
+train <- train[, setdiff(names(train), c(grep("time|window", names(train), value = TRUE), "V1", "user_name"))]
+validate <- validate[, setdiff(names(validate), c(grep("time|window", names(validate), value = TRUE), "V1", "user_name"))]
+testing <- testing[, setdiff(names(testing), c(grep("time|window", names(testing), value = TRUE), "V1", "user_name"))]
 
 ############################ Simple exploratory data analysis on predictors ############################
 
 ## Change class of classe variable
 train$classe <- as.factor(train$classe)
-test$classe <- as.factor(test$classe)
+validate$classe <- as.factor(validate$classe)
 
 ## Feature plot
 # Predictors 1-10
@@ -110,17 +104,17 @@ modelRF
 
 ############################ Predict on validation test set
 
-predictRF <- predict(modelRF, test)
-confusionMatrix(test$classe, predictRF)
+predictRF <- predict(modelRF, validate)
+confusionMatrix(validate$classe, predictRF)
 
 ## Calculate accuracy measures
-accuracy <- postResample(predictRF, test$classe)
+accuracy <- postResample(predictRF, validate$classe)
 accuracy
 # Accuracy (the fraction of correct predictions) = 99.30%
 # Kappa (measure of concordance) = 0.9911
 
 ## Calculate out-of-sample accuracy
-oose <- (1-as.numeric(confusionMatrix(test$classe, predictRF)$overall[1]))
+oose <- (1-as.numeric(confusionMatrix(validate$classe, predictRF)$overall[1]))
 oose
 # Estimated out of sample error is 0.69%
 
@@ -139,20 +133,20 @@ fancyRpartPlot(treeModel)
 dev.off()
 
 ## Predict validation test set
-predictTree <- predict(treeModel, test, type = "class")
+predictTree <- predict(treeModel, validate, type = "class")
 
 ## Confusion matrix
-confusionMatrix(predictTree, test$classe)
+confusionMatrix(predictTree, validate$classe)
 # Much lower accuracy
 
 ## Calculate accuracy measures
-accuracyTree <- postResample(predictTree, test$classe)
+accuracyTree <- postResample(predictTree, validate$classe)
 accuracyTree
 # Accuracy (the fraction of correct predictions) = 75.44%
 # Kappa (measure of concordance) = 0.6882
 
 ## Calculate out-of-sample accuracy
-ooseTree <- (1-as.numeric(confusionMatrix(test$classe, predictTree)$overall[1]))
+ooseTree <- (1-as.numeric(confusionMatrix(validate$classe, predictTree)$overall[1]))
 ooseTree
 # Estimated out of sample error is 24.55%
 

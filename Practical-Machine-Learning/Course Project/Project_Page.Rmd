@@ -1,0 +1,208 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Mark Dakkak"
+date: "April 23, 2015"
+output: html_document
+---
+
+Introduction  
+--------------------------  
+Using devices such as *Jawbone Up*, *Nike FuelBand*, and *Fitbit* it is now possible to collect a large amount of data about personal activity inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves to improve their health, to find patterns in their behavior, or because they are tech geeks.  
+
+One this that people regularly do is quantify how *much* of a particular activity they do, but they rarely quantify *how well they do it*. Six participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of these participants to correctly classify the type of barbell lift.  
+
+Data
+-------------------------
+The data used for this project is available from [this website](http://groupware.les.inf.puc-rio.br/har) in the **Weight Lifting Exercise Dataset**. Six young healthy participants were asked to perform one set of 10 repititions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).  
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the mannyer they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25 kg).  
+
+Data Manipulation
+-------------------------
+
+### Step 1: Set up the environment  
+
+The analysis below requires the following packages:  
+```{r libraries, echo=TRUE} 
+library(data.table)
+library(caret)
+library(ggplot2)
+library(rattle)
+library(rpart)
+library(rpart.plot)
+```
+
+Note that I use data.table version 1.9.5, which enables reading files from "https" URLS. To download this version of the package, follow [these](https://github.com/Rdatatable/data.table/wiki/Installation) instructions.  
+
+### Step 2: Load data  
+
+To load the data directly into memory:
+```{r loaddata, echo=TRUE, cache=TRUE}
+training <- fread("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+testing <- fread("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+```
+
+### Step 3: Clean data  
+
+#### Missing variables  
+
+First, look at how many missing values are in each column. To do this, I calculate the number of NAs and empty strings.
+```{r missingness, echo=TRUE, cache=TRUE}
+missing_training <- as.data.table(t(training[, lapply(.SD, function(x) sum(is.na(x) | x == "", na.rm = TRUE))]), keep.rownames = TRUE)
+table(missing_training$V1)
+```
+
+The table above shows that 60 variables have zero missing values, whereas 100 variables have 19,216 missing values (which is the number of rows in the data).  
+
+I drop the 100 variables that are entirely missing from both the test and training sets:
+```{r dropmissing, echo=TRUE, cache=TRUE}
+missing <- missing_training[V1 != 0, rn]
+training <- training[, setdiff(names(training), missing), with = FALSE]
+testing <- testing[, setdiff(names(testing), missing), with = FALSE]
+```
+
+#### Split training and validation  
+
+First, I convert back to data frames, which work seamlessly with the caret syntax:  
+```{r dataframes, echo=TRUE}
+training <- as.data.frame(training)
+testing <- as.data.frame(testing)
+```
+
+And then split the training into train (70%) and validate (30%) subsets:  
+```{r splittraining, echo=TRUE, cache=TRUE}
+inTrain <- createDataPartition(y = training$classe, p = 0.7, list = FALSE)
+train <- training[inTrain,]
+validate <- training[-inTrain,]
+```
+
+Now, the dimensions of the training set are (`r dim(train)`) and the dimensions of the validation set are (`r dim(validate)`).  
+
+#### Variables with zero / near-zero variance  
+
+Next, I identify the variables with zero or near-zero variance:  
+```{r nearzerovar, echo=TRUE, cache=TRUE}
+nsv <- nearZeroVar(train, saveMetrics = TRUE)
+nsv <- nsv[order(-nsv$freqRatio),]
+head(nsv)
+```
+Variables with near zero variance can be thrown out of the prediction algorithm, because they contribute very little to determining the outcome. In the table above, we can see that the single most common value for the variable "new_window" occurs nearly 50 times more often than the second most common value. As it turns out, there are no variables with zero variance and "new_window" is the only variable identified as having near zero variance:  
+```{r sum_nearzerovar, echo=TRUE}
+sum(nsv$zeroVar)
+sum(nsv$nzv)
+```
+
+I remove this variable from the dataset:
+```{r remove_nearzerovar, echo=TRUE, cache=TRUE}
+train <- train[,setdiff(names(train),"new_window")]
+validate <- validate[,setdiff(names(validate), "new_window")]
+testing <- testing[,setdiff(names(testing), "new_window")]
+```
+
+#### Remove unrelated variables  
+
+I removed the variables V1 (captures the order of observations), "user_name" (captures the individual's name), window and the timestamp values. These variables do not contribute to accelerometer readings, which are the focus of this project.  
+```{r remove_unrelated, echo=TRUE, cache=TRUE}
+train <- train[, setdiff(names(train), c(grep("time|window", names(train), value = TRUE), "V1", "user_name"))]
+validate <- validate[, setdiff(names(validate), c(grep("time|window", names(validate), value = TRUE), "V1", "user_name"))]
+testing <- testing[, setdiff(names(testing), c(grep("time|window", names(testing), value = TRUE), "V1", "user_name"))]
+```
+
+Now, we are left with 52 predictor variables.  
+
+#### Fix class of outcome  
+
+The last data cleaning step is to ensure that the activity "classe" is a factor variable:
+```{r classfix, echo=TRUE}
+train$classe <- as.factor(train$classe)
+validate$classe <- as.factor(validate$classe)
+```
+
+Data Modeling
+-------------------------
+
+My goal going into this project is to achieve an out-of-sample accuracy of 80%, meaning that the machine learning model correctly classifies 80% of the movements in the test data. I will develop the model on the training subset, validate it on the validate subset, and test it on 20 unseen cases.
+
+### Step 1: Classification and regression tree  
+First, I develop the classification model on the trianing data:  
+```{r treeModel, echo=TRUE, cache=TRUE}
+treeModel <- rpart(classe ~ ., data = train, method = "class")
+```
+
+Below is a fancy plot of the classification tree:  
+```{r treePlot, echo=TRUE, cache=TRUE}
+fancyRpartPlot(treeModel)
+```
+
+The text is small due to the large number of measurements used in the splits, but the first node divides observations with roll_belt < 130 and roll_belt >= 130. Among observations with roll_belt >= 130, 96% are class E. For observations with roll_belt < 130, the next split occurs at pitch_forearm < -34. Continuing to follow the splits and nodes enables classification of the 5 types of movement.  
+
+#### Validate  
+
+First, we validate the model on the subset of training data that we haven't seen yet:  
+```{r treeValidate, echo=TRUE,cache=TRUE}
+predictTree <- predict(treeModel, validate, type = "class")
+confusionMatrix(predictTree, validate$classe)
+```
+
+In the confusion matrix output we see that the classification tree does much better predicting Class A movements than Class B movements. We can hone in on the accuracy measures of interest:  
+```{r treeAccuracy, echo=TRUE,cache=TRUE}
+accuracyTree <- postResample(predictTree, validate$classe)
+accuracyTree
+```
+
+We see that the classification and regression tree correctly classified 74% of the movements. The kappa statistic measures inter-rater agreement for categorical items and is generally thought to be a more robust measure than simple percent agreement calculation, because $\kappa$ takes into account the agreement occurring by chance.  
+
+Lastly, the out-of-sample estimated accuracy is calculated:  
+```{r treeOos, echo=TRUE, cache=TRUE}
+ooseTree <- (1-as.numeric(confusionMatrix(validate$classe, predictTree)$overall[1]))
+ooseTree
+```
+
+Thus, we estimate that about a quarter of movements will be misclassified by the model.  
+
+#### Test  
+
+Now, we run the 20 test cases through the classification and regression tree:
+```{r treeTest, echo=TRUE, cache=TRUE}
+resultTree <- predict(treeModel, testing[, setdiff(names(testing), c("problem_id"))], type = "class")
+resultTree
+```
+
+We expect ~75% of these predictions to be correct.  
+
+### Step 2: Random forest  
+First, I develop the random forest model on the training data, where I draw 250 boostrap samples (ntree) from the original data and use 5-fold cross validation:  
+```{r rfModel, echo=TRUE, cache=TRUE}
+controlRF <- trainControl(method = "cv", 5)
+modelRF <- train(classe ~ ., data = train, method = "rf", trControl = controlRF, ntree = 250)
+modelRF
+```
+
+#### Validate  
+Now, we run the random forest model on the validation set:
+```{r rfValidate, echo=TRUE, cache=TRUE}
+predictRF <- predict(modelRF, validate)
+confusionMatrix(validate$classe, predictRF)
+```
+
+From the confusion matrix, we can already tell the random forest model outperforms the classification tree. For each class of movement, the sensitivity and specificity are > 98%. We can hone in on the accuracy measures of interest:  
+```{r rfAccuracy, echo=TRUE,cache=TRUE}
+accuracy <- postResample(predictRF, validate$classe)
+accuracy
+```
+The random forest model achieves an accuracy of 99.5%, much higher than the accuracy of the classification tree.  
+
+Lastly, the estimated out of sample accuracy is:  
+```{r rfOos, echo=TRUE,cache=TRUE}
+oose <- (1-as.numeric(confusionMatrix(validate$classe, predictRF)$overall[1]))
+oose
+```
+For random forest, we expect 0.5% of movements to be misclassified.  
+
+#### Test  
+Now, we run the 20 test cases through thr random forest model:  
+```{r rfTest, echo=TRUE, cache=TRUE}
+resultRF <- predict(modelRF, testing[, setdiff(names(testing), c("problem_id"))])
+resultRF
+```
+We expect nearly all of these predictions to be correct.  

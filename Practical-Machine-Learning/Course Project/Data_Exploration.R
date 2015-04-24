@@ -154,3 +154,20 @@ ooseTree
 resultTree <- predict(treeModel, testing[, setdiff(names(testing), c("problem_id"))])
 resultTree
 
+############################ Submit programming section ############################
+
+## Use result from random forest model
+answers <- as.vector(result)
+
+## Use function from Coursera
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+}
+
+## Set working directory to project
+setwd("/Users/sommpd10/Desktop/Programming Resources/datasciencecoursera/Practical-Machine-Learning/Course Project/Submission Files")
+pml_write_files(answers)

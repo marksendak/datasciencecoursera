@@ -326,7 +326,7 @@ confusionMatrix(validate$classe, predictRF)</code></pre>
 </div>
 <div id="test-1" class="section level4">
 <h4>Test</h4>
-<p>Now, we run the 20 test cases through thr random forest model:</p>
+<p>Now, we run the 20 test cases through the random forest model:</p>
 <pre class="r"><code>resultRF &lt;- predict(modelRF, testing[, setdiff(names(testing), c(&quot;problem_id&quot;))])
 resultRF</code></pre>
 <pre><code>##  [1] B A B A A E D B A A B C B A E E A B B B

@@ -153,3 +153,4 @@ ooseTree
 ############################ Predict 20 test observations
 resultTree <- predict(treeModel, testing[, setdiff(names(testing), c("problem_id"))])
 resultTree
+

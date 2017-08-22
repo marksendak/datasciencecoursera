@@ -1,0 +1,77 @@
+> #### Assignment: Part 2 of Week 4
+> #### Course: Advanced R Programming
+> #### Speciaization: Mastering Software Deveopment in R
+> #### Date Created: July 21, 2017
+> #### Author: Mark Sendak
+> 
+> ############################ prepare environment ############################
+> library(readr)
+> library(dplyr)
+> library(tidyr)
+> library(magrittr)
+> 
+> ## Read in data and functions
+> data <- read_csv("data/MIE.csv")
+Parsed with column specification:
+cols(
+  id = col_integer(),
+  visit = col_integer(),
+  room = col_character(),
+  value = col_double(),
+  timepoint = col_integer()
+)
+> source("oop_code.R")
+> 
+> ############### Run through code
+> x <- make_LD(data)
+> print(class(x))
+[1] "LongitudinalData" "data.frame"      
+> 
+> print(x)
+Longitudinal dataset with 10 subjects
+> 
+> out <- subject(x,10)
+> print(out)
+NULL
+> 
+> out <- subject(x,14)
+> print(out)
+Subject ID: 14
+> 
+> out <- subject(x, 54) %>% summary
+> print(out)
+Subject ID: 54 
+  visit  bedroom       den living.room    office
+1     0       NA        NA    2.792601 13.255475
+2     1       NA 13.450946          NA  4.533921
+3     2 4.193721  3.779225          NA        NA
+> 
+> out <- subject(x, 14) %>% summary
+> print(out)
+Subject ID: 14 
+  visit   bedroom family..room living.room
+1     0  4.786592           NA     2.75000
+2     1  3.401442     8.426549          NA
+3     2 18.583635           NA    22.55069
+> 
+> out <- subject(x, 44) %>% visit(0) %>% room("bedroom")
+> print(out)
+ID: 44
+Visit: 0
+Room: bedroom
+> 
+> out <- subject(x, 44) %>% visit(0) %>% room("bedroom") %>% summary
+> print(out)
+ID: 44
+Visit: 0
+Room: bedroom
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    8.0    30.0    51.0    88.8    80.0   911.0 
+> 
+> out <- subject(x, 44) %>% visit(1) %>% room("living room") %>% summary
+> print(out)
+ID: 44
+Visit: 1
+Room: living room
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+   2.75   14.00   24.00   41.37   37.00 1607.00 
